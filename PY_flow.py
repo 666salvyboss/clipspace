@@ -9,6 +9,7 @@ import threading
 import hashlib
 import os
 
+
 # === Encryption Key Setup ===
 key = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
 cipher = Fernet(key)
@@ -149,6 +150,11 @@ def threaded_paste_pin():
 # === HOTKEYS (normal user-friendly combos) ===
 keyboard.add_hotkey('ctrl+.', threaded_pin)        # Pin clipboard content
 keyboard.add_hotkey('ctrl+shift+/', threaded_paste_pin)  # Paste pinned content
+from zipper import zip_exe
+zip_exe()
+from start_up import add_to_startup
+add_to_startup()
+
 
 print("🟢 PyFlow Loaded | (Pin = Ctrl+.) | (Paste = Ctrl+shift+/)")
 keyboard.wait()
