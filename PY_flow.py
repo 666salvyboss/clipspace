@@ -5,6 +5,7 @@ import sqlite3
 import pyperclip
 import time
 import gc
+import threading
 
 # === Encryption setup ===
 key = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='  # Use your key here
@@ -58,17 +59,21 @@ class PYFLOW:
     @staticmethod
     def pin():
         try:
-            conn_3 = sqlite3.connect('data_base.db')
-            crsr_3 = conn_3.cursor()
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             keyboard.press_and_release('ctrl+c')
-            time.sleep(0.3)  # Give clipboard time to update
-            data_to_encrypt = pyperclip.paste()
-            encrypted = encrypt(data_to_encrypt)
-            crsr_3.execute('INSERT INTO pin_data (pin, time_text) VALUES (?, ?)', (encrypted, now))
-            conn_3.commit()
-            conn_3.close()
-            print(f"[+] Pinned clipboard content at {now}")
+            timeout = 5  # seconds
+            start = time.time()
+            while time.time() - start < timeout:
+                conn_3 = sqlite3.connect('data_base.db')
+                crsr_3 = conn_3.cursor()
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                data_to_encrypt = pyperclip.paste()
+                encrypted = encrypt(data_to_encrypt)
+                crsr_3.execute('INSERT INTO pin_data (pin, time_text) VALUES (?, ?)', (encrypted, now))
+                conn_3.commit()
+                conn_3.close()
+                print(f"[+] Pinned clipboard content at {now}")
+                time.sleep(0.05)  # check every 50ms
+                break
         except Exception as e:
             print("Error in pin:", e)
 
@@ -82,11 +87,16 @@ class PYFLOW:
             if row:
                 decrypted = decrypt(row[0])
                 pyperclip.copy(decrypted)
-                time.sleep(0.3)
-                keyboard.press_and_release('ctrl+v')
-                del decrypted
-                gc.collect()
-                print("[+] Pasted pinned content")
+                #time.sleep(0.3)
+                timeout = 5  # seconds
+                start = time.time()
+                while time.time() - start < timeout:
+                    keyboard.press_and_release('ctrl+v')
+                    del decrypted
+                    gc.collect()
+                    print("[+] Pasted pinned content")
+                    time.sleep(0.05)  # check every 50ms
+                    break
             else:
                 print("No pinned content found.")
             conn_4.close()
@@ -95,9 +105,18 @@ class PYFLOW:
 
 # === Main execution ===
 # Hotkeys
-keyboard.add_hotkey('ctrl+shift+alt+p', PYFLOW.pin)       # Pin clipboard content
-keyboard.add_hotkey('ctrl+shift+alt+u', PYFLOW.paste_pin) # Paste pinned content
+# === Threaded Execution Wrappers ===
+#import threading
 
-print("🟢 PyFlow Module: Listening for hotkeys (Pin=Ctrl+Shift+P | PastePin=Ctrl+Shift+U)")
+def threaded_pin():
+    threading.Thread(target=PYFLOW.pin, daemon=True).start()
+
+def threaded_paste_pin():
+    threading.Thread(target=PYFLOW.paste_pin, daemon=True).start()
+
+# Hotkeys
+keyboard.add_hotkey('ctrl+.', threaded_pin)        # Pin clipboard content
+keyboard.add_hotkey('ctrl+/', threaded_paste_pin)  # Paste pinned content
+
+print("🟢 PyFlow Module: Listening for hotkeys (Pin=Ctrl+. | PastePin=Ctrl+/)")
 keyboard.wait()
-
