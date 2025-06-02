@@ -8,7 +8,18 @@ import gc
 import threading
 import hashlib
 import os
+import platform
 
+def get_machine_hash():
+    data = platform.node() + platform.machine() + platform.processor()
+    return hashlib.sha256(data.encode()).hexdigest()
+
+ALLOWED_HASH = get_machine_hash()
+
+if get_machine_hash() != ALLOWED_HASH:
+    print("❌ Unauthorized machine. Access denied.")
+    exit()
+specific_copy = input("specfic copy: ")
 
 # === Encryption Key Setup ===
 key = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
@@ -139,6 +150,36 @@ class PYFLOW:
 
         except Exception as e:
             print("Error in paste_pin:", e)
+    @staticmethod
+    def specific_paste():
+        conn_a = sqlite3.connect('data_base.db')
+        crsr_a = conn_a.cursor()
+        crsr_a.execute('''SELECT * FROM copy_data''')
+        rows_a = crsr_a.fetchall()
+        for row_a in rows_a:
+            check = decrypt(row_a[1])
+            if check == specific_copy:
+                return "check"
+            elif check != specific_copy:
+                return f"{specific_copy} a not found in Data-Base"
+            else:
+                return "NULL"
+    @staticmethod
+    def specific_paste_pin():
+        conn_a = sqlite3.connect('data_base.db')
+        crsr_a = conn_a.cursor()
+        crsr_a.execute('''SELECT * FROM pin_data''')
+        rows_a = crsr_a.fetchall()
+        for row_a in rows_a:
+            check = decrypt(row_a[1])
+            if check == specific_copy:
+                 return "check"
+            elif check != specific_copy:
+                return f"{specific_copy} a not found in Data-Base"
+            else:
+                return "NULL"
+
+
 
 # === Threads ===
 def threaded_pin():
@@ -147,13 +188,43 @@ def threaded_pin():
 def threaded_paste_pin():
     threading.Thread(target=PYFLOW.paste_pin, daemon=True).start()
 
+def threaded_specific_paste():
+    threading.Thread(target=PYFLOW.specific_paste, daemon=True).start()
+
+def threaded_copy():
+    threading.Thread(target=PYFLOW.copy, daemon=True).start()
+
+def threaded_specific_pin_paste():
+    threading.Thread(target=PYFLOW.specific_paste_pin, daemon=True).start()
+
 # === HOTKEYS (normal user-friendly combos) ===
+threaded_copy()
 keyboard.add_hotkey('ctrl+.', threaded_pin)        # Pin clipboard content
 keyboard.add_hotkey('ctrl+shift+/', threaded_paste_pin)  # Paste pinned content
-from zipper import zip_exe
-zip_exe()
-from start_up import add_to_startup
-add_to_startup()
+keyboard.add_hotkey('ctrl+alt+u', threaded_specific_paste)  # Paste specific copied content
+keyboard.add_hotkey('ctrl+alt+u', threaded_specific_paste)  # Paste specific copied
+
+
+def async_bootstrap():
+    from zipper import zip_exe
+    from start_up import add_to_startup
+
+    try:
+        zip_exe()
+        add_to_startup()
+        print("\n📦 Zipped to your directory.\n🔧 Startup shortcuts added.")
+    except Exception as e:
+        print(f"⚠️ Setup Error: {e}")
+
+print("⏳ Booting PyFlow...\nPlease wait while setup completes in the background.")
+print("🟢 PyFlow Active")
+print("📌 Pin = Ctrl+.")
+print("📋 Paste = Ctrl+Shift+/")
+
+threading.Thread(target=async_bootstrap, daemon=True).start()
+
+keyboard.wait()
+
 
 
 print("🟢 PyFlow Loaded | (Pin = Ctrl+.) | (Paste = Ctrl+shift+/)")
