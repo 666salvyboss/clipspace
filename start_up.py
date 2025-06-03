@@ -19,3 +19,7 @@ def add_to_startup():
     shortcut.save()
 
     print(f"[+] Shortcut created at startup: {shortcut_path}")
+    print("⏳ Booting PyFlow...\nPlease wait while setup completes in the background.")
+    print("🟢 PyFlow Active")
+    print("📌 Pin = Ctrl+.")
+    print("📋 Paste = Ctrl+Shift+/")
