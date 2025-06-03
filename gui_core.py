@@ -1,6 +1,6 @@
 import sqlite3
 import threading
-from datetime import datetime
+
 
 import keyboard
 from cryptography.fernet import Fernet
@@ -11,14 +11,7 @@ key = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
 cipher = Fernet(key)
 
 
-def group_setup():
-    conn = sqlite3.connect('''data_base.db''')
-    crsr= conn.cursor()
-    crsr.execute('''CREATE TABLE IF NOT EXIST foo(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    hash TEXT UNIQUE,
-                    data BLOB NOT NULL
-                    time_text TEXT NOT NULL''')
+
 
 class GuiCore:
     @staticmethod
@@ -43,59 +36,47 @@ class GuiCore:
         crsr_a = conn_a.cursor()
         crsr_a.execute('''SELECT * FROM pin_data''')
         rows_a = crsr_a.fetchall()
+        found = False
         for row_a in rows_a:
             check = decrypt(row_a[1])
             if check == specific_copy:
-                 return "check"
-            elif check != specific_copy:
-                return f"{specific_copy} a not found in Data-Base"
-            else:
-                return "NULL"
+                 found = True
+                 return check, row_a[2]
+        if found:
+            print("gone")
+        else:
+            print(f"{specific_copy} not in database")
+
     @staticmethod
     def delete_copy():
         specific_copy = input("specfic copy: ")
         conn_a = sqlite3.connect('data_base.db')
         crsr_a = conn_a.cursor()
-        crsr_a.execute('''SELECT * FROM copy_data''')
-        rows_a = crsr_a.fetchall()
-        for row_a in rows_a:
-            check = decrypt(row_a[1])
-            if check == specific_copy:
-                crsr_a.execute('''DELETE FROM copy_data WHERE copy = ?''', (check,))
-                conn_a.commit()
-            elif check != specific_copy:
-                return f"{specific_copy} a not found in Data-Base"
-            else:
-                return "NULL"
+        check = hash_text(specific_copy)
+        crsr_a.execute('''DELETE  FROM copy_data WHERE hash = ?''', (check,))
+        found = crsr_a.rowcount
+        conn_a.commit()
+        if found > 0:
+            print("gone")
+        else:
+            print(f"{specific_copy} not in database")
+
+
+
     @staticmethod
     def delete_specific_pin():
         specific_copy = input("specfic copy: ")
         conn_a = sqlite3.connect('data_base.db')
         crsr_a = conn_a.cursor()
-        crsr_a.execute('''SELECT * FROM pin_data''')
-        rows_a = crsr_a.fetchall()
-        for row_a in rows_a:
-            check = decrypt(row_a[1])
-            if check == specific_copy:
-                return "check"
-            elif check != specific_copy:
-                return f"{specific_copy} a not found in Data-Base"
-            else:
-                return "NULL"
-    @staticmethod
-    def grouped_pins():
-        group_setup()
-        data = input('data: ')
-        pin_hash = hash_text(data)
-        encrypted = encrypt(data)
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        conn = sqlite3.connect('''data_base.db''')
-        crsr = conn.cursor()
-        crsr.execute('''INSERT INTO foo (hash, data, time_text)
-                        VALUES ( ?,?,?) ON CONFLICT(hash) DO UPDATE SET 
-                        pin = excluded.pin
-                        time_text = excluded.time_text''', (pin_hash, encrypted, now))
-        conn.commit()
+        check = hash_text(specific_copy)
+        crsr_a.execute('''DELETE  FROM pin_data WHERE hash = ?''', (check,))
+        found = crsr_a.rowcount
+        conn_a.commit()
+        if found > 0:
+            print("gone")
+        else:
+            print(f"{specific_copy} not in database")
+
     @staticmethod
     def show_copy_history():
         conn = sqlite3.connect('''data_base.db''')
@@ -103,15 +84,20 @@ class GuiCore:
         crsr.execute('''SELECT copy, time_text FROM copy_data
                         ORDER BY time_text DESC LIMIT 100''')
         rows = crsr.fetchall()
-        return [(row[1], row[2]) for row in rows]
+        for row in rows:
+            data = decrypt(row[0])
+            print(f"kk{data} - {row[1]}")
+
     @staticmethod
     def pin_history():
         conn = sqlite3.connect('''data_base.db''')
         crsr = conn.cursor()
-        crsr.execute('''SELECT pin, time_text FROM copy_data
+        crsr.execute('''SELECT pin, time_text FROM pin_data
                                 ORDER BY time_text DESC LIMIT 100''')
         rows = crsr.fetchall()
-        return [(row[1], row[2]) for row in rows]
+        for row in rows:
+            data = decrypt(row[0])
+            print(f"ff{data} - {row[1]}")
 
 
 
@@ -123,13 +109,18 @@ def threaded_specific_paste():
 def threaded_specific_pin_paste():
     threading.Thread(target=GuiCore.specific_paste_pin, daemon=True).start()
 
-def threaded_grouped_pins():
-    threading.Thread(target=GuiCore.grouped_pins, daemon=True).start()
 
 def threaded_copy_history():
     threading.Thread(target=GuiCore.show_copy_history, daemon=True).start()
 
+def threaded_pin_history():
+    threading.Thread(target=GuiCore.pin_history, daemon=True).start()
+
+
 
 if __name__ == '__main__':
-    keyboard.add_hotkey('ctrl+alt+u', threaded_specific_paste)  # Paste specific copied content
-    keyboard.add_hotkey('ctrl+alt+r', threaded_specific_paste)  # Paste specific pinned content
+    #keyboard.add_hotkey('ctrl+alt+u', threaded_specific_paste)  # Paste specific copied content
+    #keyboard.add_hotkey('ctrl+alt+r', threaded_specific_pin_paste)  # Paste specific pinned content
+    r = GuiCore()
+    r.show_copy_history()
+    print(r.delete_copy())

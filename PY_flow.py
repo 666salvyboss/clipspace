@@ -39,8 +39,10 @@ def hash_text(text: str) -> str:
 def setup_db():
     conn = sqlite3.connect('data_base.db')
     crsr = conn.cursor()
+    #crsr.execute('''DROP TABLE copy_data''')
     crsr.execute('''CREATE TABLE IF NOT EXISTS copy_data(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    hash TEXT UNIQUE,
                     copy BLOB NOT NULL,
                     time_text TEXT NOT NULL )''')
 
@@ -67,7 +69,11 @@ class PYFLOW:
                     crsr = conn.cursor()
                     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     encrypted = encrypt(current)
-                    crsr.execute('INSERT INTO copy_data (copy, time_text) VALUES (?, ?)', (encrypted, now))
+                    hash_data = hash_text(current)
+                    crsr.execute('''INSERT INTO copy_data (hash, copy, time_text) VALUES (?, ?, ?)
+                ON CONFLICT(hash) DO UPDATE SET
+                    copy = excluded.copy,
+                    time_text = excluded.time_text;''', (hash_data, encrypted, now))
                     conn.commit()
                     conn.close()
                     print(f"[+] Copied and stored at {now}")
@@ -127,6 +133,7 @@ class PYFLOW:
                 try:
                     keyboard.press_and_release('ctrl+v')
                     print("[+] Simulated Ctrl+V")
+                    time.sleep(0.2)
                 except:
                     print("[!] Ctrl+V failed, using keyboard.write()")
                     keyboard.write(decrypted)
@@ -142,8 +149,17 @@ class PYFLOW:
 def threaded_pin():
     threading.Thread(target=PYFLOW.pin, daemon=True).start()
 
-def threaded_paste_pin():
-    threading.Thread(target=PYFLOW.paste_pin, daemon=True).start()
+def cooldown_wrapper(func, cooldown=0.8):
+    last_called = [0]  # mutable closure
+
+    def wrapped():
+        now = time.time()
+        if now - last_called[0] >= cooldown:
+            last_called[0] = now
+            threading.Thread(target=func, daemon=True).start()
+        else:
+            print("[!] Cooldown active — skipped")
+    return wrapped
 
 def threaded_copy():
     threading.Thread(target=PYFLOW.copy, daemon=True).start()
@@ -153,7 +169,7 @@ def threaded_copy():
 if __name__ == '__main__':
     threaded_copy()
     keyboard.add_hotkey('ctrl+.', threaded_pin)        # Pin clipboard content
-    keyboard.add_hotkey('ctrl+shift+/', threaded_paste_pin)  # Paste pinned content
+    keyboard.add_hotkey('ctrl+shift+/', cooldown_wrapper(PYFLOW.paste_pin))  # Paste pinned content
 
 
     def async_bootstrap():
@@ -167,10 +183,7 @@ if __name__ == '__main__':
             print(f"⚠️ Setup Error: {e}")
 
 
-    print("⏳ Booting PyFlow...\nPlease wait while setup completes in the background.")
-    print("🟢 PyFlow Active")
-    print("📌 Pin = Ctrl+.")
-    print("📋 Paste = Ctrl+Shift+/")
+
     threading.Thread(target=async_bootstrap, daemon=True).start()
     keyboard.wait()
     print("🟢 PyFlow Loaded | (Pin = Ctrl+.) | (Paste = Ctrl+shift+/)")
