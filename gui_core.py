@@ -5,16 +5,11 @@ from datetime import datetime
 import keyboard
 from cryptography.fernet import Fernet
 
-from PY_flow import hash_text
+from PY_flow import hash_text, decrypt, encrypt
 
 key = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
 cipher = Fernet(key)
 
-def encrypt(data: str) -> bytes:
-    return cipher.encrypt(data.encode())
-
-def decrypt(token: bytes) -> str:
-    return cipher.decrypt(token).decode()
 
 def group_setup():
     conn = sqlite3.connect('''data_base.db''')

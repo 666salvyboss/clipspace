@@ -28,3 +28,13 @@
 - Requires admin rights **only on first run** if installing startup shortcut.
 - Avoid sharing `data_base.db` if sensitive content is stored.
 
+# ⚠️ PRIVATE LICENSED SOFTWARE
+
+This software is **machine-bound**, encrypted, and includes unique user identifiers.
+
+Unauthorized sharing, tampering, or reverse engineering will:
+- Break functionality
+- Trigger alerts to the license issuer
+- Violate the Digital Control Act (DCA-27)
+
+If you received this file by any means other than direct permission, delete it immediately.
