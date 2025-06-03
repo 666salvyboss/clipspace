@@ -19,7 +19,7 @@ ALLOWED_HASH = get_machine_hash()
 if get_machine_hash() != ALLOWED_HASH:
     print("❌ Unauthorized machine. Access denied.")
     exit()
-specific_copy = input("specfic copy: ")
+
 
 # === Encryption Key Setup ===
 key = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
@@ -34,11 +34,11 @@ def decrypt(token: bytes) -> str:
 def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
+
 # === Database Setup ===
 def setup_db():
     conn = sqlite3.connect('data_base.db')
     crsr = conn.cursor()
-
     crsr.execute('''CREATE TABLE IF NOT EXISTS copy_data(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     copy BLOB NOT NULL,
@@ -48,7 +48,6 @@ def setup_db():
                     hash TEXT PRIMARY KEY,
                     pin BLOB NOT NULL,
                     time_text TEXT NOT NULL )''')
-
     conn.commit()
     conn.close()
 
@@ -56,7 +55,6 @@ setup_db()
 
 # === Core Class ===
 class PYFLOW:
-
     @staticmethod
     def copy():
         """Continuously monitor clipboard and save new copied items."""
@@ -84,24 +82,19 @@ class PYFLOW:
         try:
             keyboard.press_and_release('ctrl+c')
             time.sleep(0.3)  # let clipboard catch up
-
             data = pyperclip.paste()
             if not data.strip():
                 print("[!] Clipboard is empty.")
                 return
-
             # 🧠 Check if PyCharm gave us a file path
             if os.path.exists(data) and os.path.isfile(data):
                 print("[*] Clipboard contains file path, reading file contents.")
                 with open(data, 'r', encoding='utf-8', errors='ignore') as f:
                     data = f.read()
-
             print(f"[DEBUG] Pinning data:\n{data[:100]}..." + ("..." if len(data) > 100 else ""))
-
             pin_hash = hash_text(data)
             encrypted = encrypt(data)
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
             conn = sqlite3.connect('data_base.db')
             crsr = conn.cursor()
             crsr.execute("""
@@ -111,11 +104,9 @@ class PYFLOW:
                     pin = excluded.pin,
                     time_text = excluded.time_text;
             """, (pin_hash, encrypted, now))
-
             conn.commit()
             conn.close()
             print(f"[+] Pinned clipboard content at {now}")
-
         except Exception as e:
             print("Error in pin:", e)
 
@@ -128,57 +119,23 @@ class PYFLOW:
             crsr.execute('SELECT pin FROM pin_data ORDER BY time_text DESC LIMIT 1')
             row = crsr.fetchone()
             conn.close()
-
             if row:
                 decrypted = decrypt(row[0])
                 print(f"[DEBUG] Pasting pinned content:\n{decrypted[:100]}..." + ("..." if len(decrypted) > 100 else ""))
-
                 pyperclip.copy(decrypted)
                 time.sleep(0.1)
-
                 try:
                     keyboard.press_and_release('ctrl+v')
                     print("[+] Simulated Ctrl+V")
                 except:
                     print("[!] Ctrl+V failed, using keyboard.write()")
                     keyboard.write(decrypted)
-
                 del decrypted
                 gc.collect()
             else:
                 print("[-] No pinned content found.")
-
         except Exception as e:
             print("Error in paste_pin:", e)
-    @staticmethod
-    def specific_paste():
-        conn_a = sqlite3.connect('data_base.db')
-        crsr_a = conn_a.cursor()
-        crsr_a.execute('''SELECT * FROM copy_data''')
-        rows_a = crsr_a.fetchall()
-        for row_a in rows_a:
-            check = decrypt(row_a[1])
-            if check == specific_copy:
-                return "check"
-            elif check != specific_copy:
-                return f"{specific_copy} a not found in Data-Base"
-            else:
-                return "NULL"
-    @staticmethod
-    def specific_paste_pin():
-        conn_a = sqlite3.connect('data_base.db')
-        crsr_a = conn_a.cursor()
-        crsr_a.execute('''SELECT * FROM pin_data''')
-        rows_a = crsr_a.fetchall()
-        for row_a in rows_a:
-            check = decrypt(row_a[1])
-            if check == specific_copy:
-                 return "check"
-            elif check != specific_copy:
-                return f"{specific_copy} a not found in Data-Base"
-            else:
-                return "NULL"
-
 
 
 # === Threads ===
@@ -188,44 +145,33 @@ def threaded_pin():
 def threaded_paste_pin():
     threading.Thread(target=PYFLOW.paste_pin, daemon=True).start()
 
-def threaded_specific_paste():
-    threading.Thread(target=PYFLOW.specific_paste, daemon=True).start()
-
 def threaded_copy():
     threading.Thread(target=PYFLOW.copy, daemon=True).start()
 
-def threaded_specific_pin_paste():
-    threading.Thread(target=PYFLOW.specific_paste_pin, daemon=True).start()
 
 # === HOTKEYS (normal user-friendly combos) ===
-threaded_copy()
-keyboard.add_hotkey('ctrl+.', threaded_pin)        # Pin clipboard content
-keyboard.add_hotkey('ctrl+shift+/', threaded_paste_pin)  # Paste pinned content
-keyboard.add_hotkey('ctrl+alt+u', threaded_specific_paste)  # Paste specific copied content
-keyboard.add_hotkey('ctrl+alt+u', threaded_specific_paste)  # Paste specific copied
+if __name__ == '__main__':
+    threaded_copy()
+    keyboard.add_hotkey('ctrl+.', threaded_pin)        # Pin clipboard content
+    keyboard.add_hotkey('ctrl+shift+/', threaded_paste_pin)  # Paste pinned content
 
 
-def async_bootstrap():
-    from zipper import zip_exe
-    from start_up import add_to_startup
-
-    try:
-        zip_exe()
-        add_to_startup()
-        print("\n📦 Zipped to your directory.\n🔧 Startup shortcuts added.")
-    except Exception as e:
-        print(f"⚠️ Setup Error: {e}")
-
-print("⏳ Booting PyFlow...\nPlease wait while setup completes in the background.")
-print("🟢 PyFlow Active")
-print("📌 Pin = Ctrl+.")
-print("📋 Paste = Ctrl+Shift+/")
-
-threading.Thread(target=async_bootstrap, daemon=True).start()
-
-keyboard.wait()
+    def async_bootstrap():
+        from zipper import zip_exe
+        from start_up import add_to_startup
+        try:
+            zip_exe()
+            add_to_startup()
+            print("\n📦 Zipped to your directory.\n🔧 Startup shortcuts added.")
+        except Exception as e:
+            print(f"⚠️ Setup Error: {e}")
 
 
-
-print("🟢 PyFlow Loaded | (Pin = Ctrl+.) | (Paste = Ctrl+shift+/)")
-keyboard.wait()
+    print("⏳ Booting PyFlow...\nPlease wait while setup completes in the background.")
+    print("🟢 PyFlow Active")
+    print("📌 Pin = Ctrl+.")
+    print("📋 Paste = Ctrl+Shift+/")
+    threading.Thread(target=async_bootstrap, daemon=True).start()
+    keyboard.wait()
+    print("🟢 PyFlow Loaded | (Pin = Ctrl+.) | (Paste = Ctrl+shift+/)")
+    keyboard.wait()
