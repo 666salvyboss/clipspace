@@ -1,15 +1,21 @@
+import subprocess
+
 import keyboard
 from datetime import datetime
 from cryptography.fernet import Fernet
 import sqlite3
 import pyperclip
 import time
-import gc
 import threading
 import hashlib
 import os
 import platform
+from PIL import ImageGrab, Image
+import io
+import pyautogui
+import gc
 
+# ======= MACHINE AUTH CHECK =======
 def get_machine_hash():
     data = platform.node() + platform.machine() + platform.processor()
     return hashlib.sha256(data.encode()).hexdigest()
@@ -20,171 +26,225 @@ if get_machine_hash() != ALLOWED_HASH:
     print("❌ Unauthorized machine. Access denied.")
     exit()
 
+# ======= ENCRYPTION SETUP =======
+KEY = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
+cipher = Fernet(KEY)
 
-# === Encryption Key Setup ===
-key = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
-cipher = Fernet(key)
+def encrypt(data: bytes) -> bytes:
+    return cipher.encrypt(data)
 
-def encrypt(data: str) -> bytes:
-    return cipher.encrypt(data.encode())
-
-def decrypt(token: bytes) -> str:
-    return cipher.decrypt(token).decode()
+def decrypt(token: bytes) -> bytes:
+    return cipher.decrypt(token)
 
 def hash_text(text: str) -> str:
+    # Hash only first 200 chars for performance, binary safe
     return hashlib.sha256(text.encode()).hexdigest()
 
+# ======= DATABASE SETUP =======
+DB_PATH = 'data_base.db'
 
-# === Database Setup ===
 def setup_db():
-    conn = sqlite3.connect('data_base.db')
-    crsr = conn.cursor()
-    #crsr.execute('''DROP TABLE copy_data''')
-    crsr.execute('''CREATE TABLE IF NOT EXISTS copy_data(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    hash TEXT UNIQUE,
-                    copy BLOB NOT NULL,
-                    time_text TEXT NOT NULL )''')
-
-    crsr.execute('''CREATE TABLE IF NOT EXISTS pin_data(
-                    hash TEXT PRIMARY KEY,
-                    pin BLOB NOT NULL,
-                    time_text TEXT NOT NULL )''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS copy_data(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hash TEXT UNIQUE,
+                copy BLOB NOT NULL,
+                time_text TEXT NOT NULL,
+                is_image INTEGER DEFAULT 0
+            )
+        ''')
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS pin_data(
+                hash TEXT PRIMARY KEY,
+                pin BLOB NOT NULL,
+                time_text TEXT NOT NULL,
+                is_image INTEGER DEFAULT 0
+            )
+        ''')
+        conn.commit()
 
 setup_db()
 
-# === Core Class ===
+# ======= CORE PYFLOW CLASS =======
 class PYFLOW:
     @staticmethod
     def copy():
-        """Continuously monitor clipboard and save new copied items."""
-        last = ""
+        """Continuously monitor clipboard for new text or images, encrypt & save."""
+        last = None
         while True:
             try:
-                current = pyperclip.paste()
+                img = ImageGrab.grabclipboard()
+                text = pyperclip.paste()
+
+                is_image = isinstance(img, Image.Image)
+                current = img if is_image else text
+
                 if current and current != last:
-                    conn = sqlite3.connect('data_base.db')
-                    crsr = conn.cursor()
                     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    encrypted = encrypt(current)
-                    hash_data = hash_text(current)
-                    crsr.execute('''INSERT INTO copy_data (hash, copy, time_text) VALUES (?, ?, ?)
-                ON CONFLICT(hash) DO UPDATE SET
-                    copy = excluded.copy,
-                    time_text = excluded.time_text;''', (hash_data, encrypted, now))
-                    conn.commit()
-                    conn.close()
-                    print(f"[+] Copied and stored at {now}")
+                    data_hash = hash_text(str(current)[:200])
+                    is_img_flag = 1 if is_image else 0
+
+                    if is_image:
+                        buf = io.BytesIO()
+                        img.save(buf, format='PNG')
+                        encrypted = encrypt(buf.getvalue())
+                    else:
+                        encrypted = encrypt(current.encode())
+
+                    with sqlite3.connect(DB_PATH) as conn:
+                        c = conn.cursor()
+                        c.execute('''
+                            INSERT INTO copy_data(hash, copy, time_text, is_image)
+                            VALUES (?, ?, ?, ?)
+                            ON CONFLICT(hash) DO UPDATE SET
+                                copy=excluded.copy,
+                                time_text=excluded.time_text,
+                                is_image=excluded.is_image
+                        ''', (data_hash, encrypted, now, is_img_flag))
+                        conn.commit()
+
+                    print(f"[+] Copied {'image' if is_image else 'text'} at {now}")
                     last = current
+
             except Exception as e:
-                print("Error in copy:", e)
+                print(f"Error in copy: {e}")
             time.sleep(0.5)
 
     @staticmethod
     def pin():
-        """Pin clipboard content with deduplication and file-path resolution."""
+        """Pin current clipboard content, encrypt & save with deduplication."""
         try:
             keyboard.press_and_release('ctrl+c')
-            time.sleep(0.3)  # let clipboard catch up
-            data = pyperclip.paste()
-            if not data.strip():
-                print("[!] Clipboard is empty.")
+            time.sleep(0.3)  # clipboard catch-up
+
+            img = ImageGrab.grabclipboard()
+            text = pyperclip.paste()
+
+            is_image = isinstance(img, Image.Image)
+            data = img if is_image else text
+
+            if not data:
+                print("[!] Clipboard empty, cannot pin.")
                 return
-            # 🧠 Check if PyCharm gave us a file path
-            if os.path.exists(data) and os.path.isfile(data):
-                print("[*] Clipboard contains file path, reading file contents.")
-                with open(data, 'r', encoding='utf-8', errors='ignore') as f:
-                    data = f.read()
-            print(f"[DEBUG] Pinning data:\n{data[:100]}..." + ("..." if len(data) > 100 else ""))
-            pin_hash = hash_text(data)
-            encrypted = encrypt(data)
+
+            pin_hash = hash_text(str(data)[:200])
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            conn = sqlite3.connect('data_base.db')
-            crsr = conn.cursor()
-            crsr.execute("""
-                INSERT INTO pin_data (hash, pin, time_text)
-                VALUES (?, ?, ?)
-                ON CONFLICT(hash) DO UPDATE SET
-                    pin = excluded.pin,
-                    time_text = excluded.time_text;
-            """, (pin_hash, encrypted, now))
-            conn.commit()
-            conn.close()
-            print(f"[+] Pinned clipboard content at {now}")
+            is_img_flag = 1 if is_image else 0
+
+            if is_image:
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                encrypted = encrypt(buf.getvalue())
+            else:
+                encrypted = encrypt(data.encode())
+
+            with sqlite3.connect(DB_PATH) as conn:
+                c = conn.cursor()
+                c.execute('''
+                    INSERT INTO pin_data(hash, pin, time_text, is_image)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(hash) DO UPDATE SET
+                        pin=excluded.pin,
+                        time_text=excluded.time_text,
+                        is_image=excluded.is_image
+                ''', (pin_hash, encrypted, now, is_img_flag))
+                conn.commit()
+
+            print(f"[+] Pinned {'image' if is_image else 'text'} at {now}")
+
         except Exception as e:
-            print("Error in pin:", e)
+            print(f"Error in pin: {e}")
 
     @staticmethod
     def paste_pin():
-        """Paste most recent pinned content, fallback to keyboard.write() if Ctrl+V fails."""
+        """Paste latest pinned content: decrypt & paste, fallback on write."""
         try:
-            conn = sqlite3.connect('data_base.db')
-            crsr = conn.cursor()
-            crsr.execute('SELECT pin FROM pin_data ORDER BY time_text DESC LIMIT 1')
-            row = crsr.fetchone()
-            conn.close()
-            if row:
-                decrypted = decrypt(row[0])
-                print(f"[DEBUG] Pasting pinned content:\n{decrypted[:100]}..." + ("..." if len(decrypted) > 100 else ""))
-                pyperclip.copy(decrypted)
+            with sqlite3.connect(DB_PATH) as conn:
+                c = conn.cursor()
+                c.execute('SELECT pin, is_image FROM pin_data ORDER BY time_text DESC LIMIT 1')
+                row = c.fetchone()
+
+            if not row:
+                print("[-] No pinned content found.")
+                return
+
+            encrypted_data, is_image = row
+            decrypted = decrypt(encrypted_data)
+
+            if is_image:
+                temp_path = "temp_clip.png"
+                with open(temp_path, 'wb') as f:
+                    f.write(decrypted)
+                print("[*] Temp image saved.")
+
+                # Open with default image viewer
+                subprocess.Popen(['start', '', temp_path], shell=True)
+
+                time.sleep(0.6)  # Give it time to open
+
+                pyautogui.hotkey('ctrl', 'v')
+                print("[+] Simulated Ctrl+V")
+
+                time.sleep(0.5)  # Let it breathe before killing
+
+                # Brutally close it — MVP style (Windows only)
+                os.system('taskkill /f /im dllhost.exe >nul 2>&1')  # Most image viewers in Windows use dllhost
+
+
+            else:
+                text = decrypted.decode()
+                pyperclip.copy(text)
                 time.sleep(0.1)
                 try:
                     keyboard.press_and_release('ctrl+v')
                     print("[+] Simulated Ctrl+V")
                     time.sleep(0.2)
-                except:
-                    print("[!] Ctrl+V failed, using keyboard.write()")
-                    keyboard.write(decrypted)
-                del decrypted
+                except Exception:
+                    print("[!] Ctrl+V failed, fallback to keyboard.write()")
+                    keyboard.write(text)
+                del text
                 gc.collect()
-            else:
-                print("[-] No pinned content found.")
+
         except Exception as e:
-            print("Error in paste_pin:", e)
+            print(f"Error in paste_pin: {e}")
 
-
-# === Threads ===
-def threaded_pin():
-    threading.Thread(target=PYFLOW.pin, daemon=True).start()
-
-def cooldown_wrapper(func, cooldown=0.8):
-    last_called = [0]  # mutable closure
-
-    def wrapped():
-        now = time.time()
-        if now - last_called[0] >= cooldown:
-            last_called[0] = now
-            threading.Thread(target=func, daemon=True).start()
-        else:
-            print("[!] Cooldown active — skipped")
-    return wrapped
-
-def threaded_copy():
+# ======= THREADS & HOTKEYS =======
+def run_copy_thread():
     threading.Thread(target=PYFLOW.copy, daemon=True).start()
 
+def run_pin_thread():
+    threading.Thread(target=PYFLOW.pin, daemon=True).start()
 
-# === HOTKEYS (normal user-friendly combos) ===
+def cooldown_decorator(func, cooldown=0.8):
+    last_time = [0]
+
+    def wrapper():
+        now = time.time()
+        if now - last_time[0] >= cooldown:
+            last_time[0] = now
+            threading.Thread(target=func, daemon=True).start()
+        else:
+            print("[!] Cooldown active — skipping call")
+    return wrapper
+
 if __name__ == '__main__':
-    threaded_copy()
-    keyboard.add_hotkey('ctrl+.', threaded_pin)        # Pin clipboard content
-    keyboard.add_hotkey('ctrl+shift+/', cooldown_wrapper(PYFLOW.paste_pin))  # Paste pinned content
+    run_copy_thread()
+    keyboard.add_hotkey('ctrl+.', run_pin_thread)
+    keyboard.add_hotkey('ctrl+shift+/', cooldown_decorator(PYFLOW.paste_pin))
 
-
-    def async_bootstrap():
+    def async_setup():
         from zipper import zip_exe
         from start_up import add_to_startup
         try:
             zip_exe()
             add_to_startup()
-            print("\n📦 Zipped to your directory.\n🔧 Startup shortcuts added.")
+            print("\n📦 Zipped and startup shortcuts added.")
         except Exception as e:
             print(f"⚠️ Setup Error: {e}")
 
+    threading.Thread(target=async_setup, daemon=True).start()
 
-
-    threading.Thread(target=async_bootstrap, daemon=True).start()
-    keyboard.wait()
-    print("🟢 PyFlow Loaded | (Pin = Ctrl+.) | (Paste = Ctrl+shift+/)")
+    print("🟢 PyFlow Loaded | (Pin = Ctrl+.) | (Paste = Ctrl+Shift+/)")
     keyboard.wait()
