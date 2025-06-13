@@ -14,7 +14,7 @@ from PIL import ImageGrab, Image
 import io
 import pyautogui
 import gc
-
+__version__ = '1.0.0'
 # ======= MACHINE AUTH CHECK =======
 def get_machine_hash():
     data = platform.node() + platform.machine() + platform.processor()
@@ -209,6 +209,21 @@ class PYFLOW:
 
         except Exception as e:
             print(f"Error in paste_pin: {e}")
+    @staticmethod
+    def emergency_paste():
+        content = pyperclip.paste()
+        if not content:
+            if keyboard.is_pressed('ctrl') and keyboard.is_pressed('v'):
+                conn = sqlite3.connect("data_base.db")
+                crsr = conn.cursor()
+                crsr.execute('''SELECT copy FROM copy_data ORDER BY time_text DESC LIMIT 1''')
+                row = crsr.fetchone()
+                if row:
+                   decrypted_text = decrypt(row[0])
+                   pyperclip.copy(decrypted_text)
+
+
+
 
 # ======= THREADS & HOTKEYS =======
 def run_copy_thread():
@@ -230,6 +245,8 @@ def cooldown_decorator(func, cooldown=0.8):
     return wrapper
 
 if __name__ == '__main__':
+    r = PYFLOW()
+    r.emergency_paste()
     run_copy_thread()
     keyboard.add_hotkey('ctrl+.', run_pin_thread)
     keyboard.add_hotkey('ctrl+shift+/', cooldown_decorator(PYFLOW.paste_pin))
