@@ -14,6 +14,7 @@ from PIL import ImageGrab, Image
 import io
 import pyautogui
 import gc
+from dotenv import load_dotenv
 __version__ = '1.0.0'
 # ======= MACHINE AUTH CHECK =======
 def get_machine_hash():
@@ -27,7 +28,7 @@ if get_machine_hash() != ALLOWED_HASH:
     exit()
 
 # ======= ENCRYPTION SETUP =======
-KEY = b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
+KEY=b'62yvjjRaK0zdh_qg69vV6ULeNCXr-ieD1Z5P_7emj0M='
 cipher = Fernet(KEY)
 
 def encrypt(data: bytes) -> bytes:
@@ -212,15 +213,17 @@ class PYFLOW:
     @staticmethod
     def emergency_paste():
         content = pyperclip.paste()
-        if not content:
-            if keyboard.is_pressed('ctrl') and keyboard.is_pressed('v'):
-                conn = sqlite3.connect("data_base.db")
-                crsr = conn.cursor()
-                crsr.execute('''SELECT copy FROM copy_data ORDER BY time_text DESC LIMIT 1''')
-                row = crsr.fetchone()
-                if row:
-                   decrypted_text = decrypt(row[0])
-                   pyperclip.copy(decrypted_text)
+        print(content)
+        if not content.strip():
+            print('f')
+            print('k')
+            conn = sqlite3.connect("data_base.db")
+            crsr = conn.cursor()
+            crsr.execute('''SELECT copy FROM copy_data ORDER BY time_text DESC LIMIT 1''')
+            row = crsr.fetchone()
+            if row:
+               decrypted_text = decrypt(row[0])
+               pyperclip.copy(decrypted_text)
 
 
 
@@ -245,11 +248,11 @@ def cooldown_decorator(func, cooldown=0.8):
     return wrapper
 
 if __name__ == '__main__':
-    r = PYFLOW()
-    r.emergency_paste()
+
     run_copy_thread()
     keyboard.add_hotkey('ctrl+.', run_pin_thread)
     keyboard.add_hotkey('ctrl+shift+/', cooldown_decorator(PYFLOW.paste_pin))
+    keyboard.add_hotkey('ctrl+v', cooldown_decorator(PYFLOW.emergency_paste))
 
     def async_setup():
         from zipper import zip_exe
